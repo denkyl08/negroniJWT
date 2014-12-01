@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	//"fmt"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/context"
 	"net/http"
