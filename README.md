@@ -1,8 +1,8 @@
 negroniJWT
 ===========
-JSON Web Token Auth middleware for Negroni.
+JSON Web Token Auth middleware for [Negroni](https://github.com/codegangsta/negroni).
 
-<br />
+GoDoc can be found [here](https://godoc.org/github.com/denkyl08/negroniJWT).
 
 ##About
 ------------

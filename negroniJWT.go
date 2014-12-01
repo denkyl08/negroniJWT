@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	CONTEXT_KEY = "jwt"
+	context_key = "jwt"
 )
 
 var (
@@ -35,7 +35,7 @@ func generateKeys() {
 		panic(err)
 	}
 	privKeyPEMEncoded = pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE CONTEXT_KEY",
+		Type:  "RSA PRIVATE context_key",
 		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
 	})
 	pubANS1, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
@@ -43,7 +43,7 @@ func generateKeys() {
 		panic(err)
 	}
 	pubKeyPEMEncoded = pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PUBLIC CONTEXT_KEY",
+		Type:  "RSA PUBLIC context_key",
 		Bytes: pubANS1,
 	})
 }
@@ -69,7 +69,7 @@ func Middleware(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) 
 	claims, err := getClaims(authToken)
 	if err == nil || failRequest == false {
 		if err == nil {
-			context.Set(r, CONTEXT_KEY, claims)
+			context.Set(r, context_key, claims)
 		}
 		next(rw, r)
 	} else {
@@ -87,7 +87,7 @@ func GenerateToken(claims map[string]interface{}, expiration time.Time) (s strin
 
 // Get attempts to retrieve the claims map for request. If there was an error decoding the JSON Web Token.
 func Get(r *http.Request) (claims map[string]interface{}, ok bool) {
-	c, ok := context.GetOk(r, CONTEXT_KEY)
+	c, ok := context.GetOk(r, context_key)
 	if !ok {
 		return claims, ok
 	}
