@@ -35,7 +35,7 @@ func generateKeys() {
 		panic(err)
 	}
 	privKeyPEMEncoded = pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE context_key",
+		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
 	})
 	pubANS1, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
@@ -43,7 +43,7 @@ func generateKeys() {
 		panic(err)
 	}
 	pubKeyPEMEncoded = pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PUBLIC context_key",
+		Type:  "RSA PUBLIC KEY",
 		Bytes: pubANS1,
 	})
 }
