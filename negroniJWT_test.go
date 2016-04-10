@@ -2,6 +2,8 @@ package negroniJWT
 
 import (
 	"bytes"
+	"crypto/x509"
+	"encoding/pem"
 	"github.com/codegangsta/negroni"
 	"github.com/gorilla/mux"
 	"io/ioutil"
@@ -24,6 +26,23 @@ func startTestServer(failRequest bool, t *testing.T, loginFunc, validToken, inva
 	m.HandleFunc("/invalidToken", invalidToken).Methods("GET")
 	n.UseHandler(m)
 	go http.ListenAndServe(":3333", n)
+}
+
+func TestBundle(t *testing.T) {
+	Init(false)
+	p, err := Bundle()
+	if err != nil {
+		t.Errorf("unable to create cert: %s", err)
+	}
+
+	pemBlock, p := pem.Decode(p)
+	if pemBlock == nil {
+		t.Fatalf("unable to decode certbundle")
+	}
+	_, err = x509.ParseCertificate(pemBlock.Bytes)
+	if err != nil {
+		t.Fatalf("unable to parse token auth root certificate: %s", err)
+	}
 }
 
 func TestValidClaims(t *testing.T) {

@@ -1,14 +1,19 @@
 package negroniJWT
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
 	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/docker/libtrust"
 	"github.com/gorilla/context"
+	"math/big"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,6 +26,8 @@ var (
 	once              sync.Once
 	privKeyPEMEncoded []byte
 	pubKeyPEMEncoded  []byte
+	pubKeyId          string
+	privKey           *rsa.PrivateKey
 	failRequest       bool
 )
 
@@ -30,12 +37,13 @@ func Init(alwaysFailRequest bool) {
 }
 
 func generateKeys() {
-	privKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	var err error
+	privKey, err = rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
 		panic(err)
 	}
 	privKeyPEMEncoded = pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
+		Type:  "PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
 	})
 	pubANS1, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
@@ -43,9 +51,41 @@ func generateKeys() {
 		panic(err)
 	}
 	pubKeyPEMEncoded = pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PUBLIC KEY",
+		Type:  "PUBLIC KEY",
 		Bytes: pubANS1,
 	})
+	libTrustPubKey, err := libtrust.UnmarshalPublicKeyPEM(pubKeyPEMEncoded)
+	if err != nil {
+		panic(err)
+	}
+	pubKeyId = libTrustPubKey.KeyID()
+}
+
+func Bundle() (p []byte, err error) {
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: "Σ Acme Co",
+		},
+		NotBefore:    time.Unix(1000, 0),
+		NotAfter:     time.Unix(100000, 0),
+		SubjectKeyId: []byte(pubKeyId),
+
+		BasicConstraintsValid: true,
+		IsCA: false,
+	}
+	out, err := x509.CreateCertificate(rand.Reader, template, template, &privKey.PublicKey, privKey)
+	if err != nil {
+		return nil, err
+	}
+	buf := bytes.NewBuffer(nil)
+	if err = pem.Encode(buf, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: out,
+	}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func getClaims(token string) (claims map[string]interface{}, err error) {
@@ -65,7 +105,7 @@ func getClaims(token string) (claims map[string]interface{}, err error) {
 // n := negroni.Classic()
 // n.Use(negroni.HandlerFunc(negroniJWT.Middleware))
 func Middleware(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	var authToken string = r.Header.Get("Authorization")
+	var authToken string = strings.Replace(r.Header.Get("Authorization"), "Bearer ", "", 1)
 	claims, err := getClaims(authToken)
 	if err == nil || failRequest == false {
 		if err == nil {
@@ -80,6 +120,9 @@ func Middleware(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) 
 // GenerateToken generates the base64 encoded JSON Web Token including the claims map provided and and expiration time.
 func GenerateToken(claims map[string]interface{}, expiration time.Time) (s string, err error) {
 	t := jwt.New(jwt.GetSigningMethod("RS256"))
+	t.Header["typ"] = "JWT"
+	t.Header["alg"] = "RS256"
+	t.Header["kid"] = pubKeyId
 	t.Claims = claims
 	t.Claims["exp"] = expiration.Unix()
 	return t.SignedString(privKeyPEMEncoded)
