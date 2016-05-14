@@ -131,7 +131,6 @@ func GenerateToken(claims map[string]interface{}, expiration time.Time) (s strin
 // Get attempts to retrieve the claims map for request. If there was an error decoding the JSON Web Token.
 func Get(r *http.Request) (claims map[string]interface{}, ok bool) {
 	c, ok := context.GetOk(r, context_key)
-	context.Delete(r, context_key)
 	if !ok {
 		return claims, ok
 	}
