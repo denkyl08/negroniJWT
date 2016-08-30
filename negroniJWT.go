@@ -90,13 +90,13 @@ func Bundle() (p []byte, err error) {
 
 func getClaims(token string) (claims map[string]interface{}, err error) {
 	parsedToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
-		return pubKeyPEMEncoded, nil
+		return jwt.ParseRSAPublicKeyFromPEM(pubKeyPEMEncoded)
 	})
 	if err != nil {
 		return nil, err
 	}
 	if parsedToken.Valid {
-		return parsedToken.Claims, nil
+		return parsedToken.Claims.(jwt.MapClaims), nil
 	}
 	return nil, errors.New("Token is invalid")
 }
@@ -123,9 +123,13 @@ func GenerateToken(claims map[string]interface{}, expiration time.Time) (s strin
 	t.Header["typ"] = "JWT"
 	t.Header["alg"] = "RS256"
 	t.Header["kid"] = pubKeyId
-	t.Claims = claims
-	t.Claims["exp"] = expiration.Unix()
-	return t.SignedString(privKeyPEMEncoded)
+	claims["exp"] = expiration.Unix()
+	t.Claims = jwt.MapClaims(claims)
+	privKey, err := jwt.ParseRSAPrivateKeyFromPEM(privKeyPEMEncoded)
+	if err != nil {
+		return "", err
+	}
+	return t.SignedString(privKey)
 }
 
 // Get attempts to retrieve the claims map for request. If there was an error decoding the JSON Web Token.
