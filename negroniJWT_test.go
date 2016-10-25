@@ -10,14 +10,26 @@ import (
 	"net/http"
 	"testing"
 	"time"
+    "os"
 )
 
 const (
 	user = "Bob"
+    testPrivPath = "priv_test.pem"
+    testPubPath = "pub_test.pem"
 )
 
+func cleanUpFiles() {
+    if err := os.Remove(testPrivPath); err != nil {
+        panic(err)
+    }
+    if err := os.Remove(testPubPath); err != nil {
+        panic(err)
+    }
+}
+
 func startTestServer(failRequest bool, t *testing.T, loginFunc, validToken, invalidToken func(http.ResponseWriter, *http.Request)) {
-	Init(failRequest)
+	Init(failRequest, testPrivPath, testPubPath)
 	n := negroni.Classic()
 	n.Use(negroni.HandlerFunc(Middleware))
 	m := mux.NewRouter()
@@ -29,7 +41,7 @@ func startTestServer(failRequest bool, t *testing.T, loginFunc, validToken, inva
 }
 
 func TestBundle(t *testing.T) {
-	Init(false)
+	Init(false, testPrivPath, testPubPath)
 	p, err := Bundle()
 	if err != nil {
 		t.Errorf("unable to create cert: %s", err)
@@ -163,4 +175,6 @@ func TestValidClaims(t *testing.T) {
 	if resp.StatusCode != 401 {
 		t.Fatal("Expected error code of 401, got ", resp.Status)
 	}
+
+    cleanUpFiles()
 }

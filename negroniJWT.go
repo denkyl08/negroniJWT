@@ -8,6 +8,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+    "os"
+    "io/ioutil"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/docker/libtrust"
 	"github.com/gorilla/context"
@@ -16,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+    "fmt"
 )
 
 const (
@@ -26,14 +29,54 @@ var (
 	once              sync.Once
 	privKeyPEMEncoded []byte
 	pubKeyPEMEncoded  []byte
+    privateKeyPath    string
+    publicKeyPath     string
 	pubKeyId          string
 	privKey           *rsa.PrivateKey
 	failRequest       bool
 )
 
-func Init(alwaysFailRequest bool) {
+func Init(alwaysFailRequest bool, privKeyPath, pubKeyPath string) {
+    privateKeyPath = privKeyPath
+    publicKeyPath = pubKeyPath
+    _, privKeyError := os.Stat(privateKeyPath)
+    _, pubKeyError := os.Stat(publicKeyPath)
 	failRequest = alwaysFailRequest
-	once.Do(generateKeys)
+    if os.IsNotExist(privKeyError) || os.IsNotExist(pubKeyError) {
+        fmt.Println("[negroniJWT] No Keys found, generating RS256 private and public keys")
+        once.Do(generateKeys)
+    } else {
+        fmt.Println("[negroniJWT] Loading keys")
+        once.Do(loadKeys)
+    }
+}
+
+func writePEMToFile(filename string, b *pem.Block) {
+    f, err := os.OpenFile(filename, os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0777)
+    if err != nil {
+        panic(err)
+    }
+    err = pem.Encode(f, b)
+    if err != nil {
+        panic(err)
+    }
+}
+
+func loadKeys() {
+    privBytes, err := ioutil.ReadFile(privateKeyPath)
+    if err != nil {
+        panic(err)
+    }
+
+    pubBytes, err := ioutil.ReadFile(publicKeyPath)
+    if err != nil {
+        panic(err)
+    }
+
+    privKeyPEMEncodedBytes, _ := pem.Decode(privBytes)
+    privKeyPEMEncoded = pem.EncodeToMemory(privKeyPEMEncodedBytes)
+    pubKeyPEMEncodedBytes, _ := pem.Decode(pubBytes)
+    pubKeyPEMEncoded = pem.EncodeToMemory(pubKeyPEMEncodedBytes)
 }
 
 func generateKeys() {
@@ -42,18 +85,22 @@ func generateKeys() {
 	if err != nil {
 		panic(err)
 	}
-	privKeyPEMEncoded = pem.EncodeToMemory(&pem.Block{
+    privateKeyPEMBlock := &pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
-	})
+	}
+    writePEMToFile(privateKeyPath, privateKeyPEMBlock)
+	privKeyPEMEncoded = pem.EncodeToMemory(privateKeyPEMBlock)
 	pubANS1, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
 	if err != nil {
 		panic(err)
 	}
-	pubKeyPEMEncoded = pem.EncodeToMemory(&pem.Block{
+    publicKeyPEMBlock := &pem.Block{
 		Type:  "PUBLIC KEY",
 		Bytes: pubANS1,
-	})
+	}
+    writePEMToFile(publicKeyPath, publicKeyPEMBlock)
+	pubKeyPEMEncoded = pem.EncodeToMemory(publicKeyPEMBlock)
 	libTrustPubKey, err := libtrust.UnmarshalPublicKeyPEM(pubKeyPEMEncoded)
 	if err != nil {
 		panic(err)
