@@ -8,17 +8,18 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
-    "os"
-    "io/ioutil"
-	jwt "github.com/dgrijalva/jwt-go"
-	"github.com/docker/libtrust"
-	"github.com/gorilla/context"
+	"fmt"
+	"io/ioutil"
 	"math/big"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
-    "fmt"
+
+	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/docker/libtrust"
+	"golang.org/x/net/context"
 )
 
 const (
@@ -29,54 +30,54 @@ var (
 	once              sync.Once
 	privKeyPEMEncoded []byte
 	pubKeyPEMEncoded  []byte
-    privateKeyPath    string
-    publicKeyPath     string
+	privateKeyPath    string
+	publicKeyPath     string
 	pubKeyId          string
 	privKey           *rsa.PrivateKey
 	failRequest       bool
 )
 
 func Init(alwaysFailRequest bool, privKeyPath, pubKeyPath string) {
-    privateKeyPath = privKeyPath
-    publicKeyPath = pubKeyPath
-    _, privKeyError := os.Stat(privateKeyPath)
-    _, pubKeyError := os.Stat(publicKeyPath)
+	privateKeyPath = privKeyPath
+	publicKeyPath = pubKeyPath
+	_, privKeyError := os.Stat(privateKeyPath)
+	_, pubKeyError := os.Stat(publicKeyPath)
 	failRequest = alwaysFailRequest
-    if os.IsNotExist(privKeyError) || os.IsNotExist(pubKeyError) {
-        fmt.Println("[negroniJWT] No Keys found, generating RS256 private and public keys")
-        once.Do(generateKeys)
-    } else {
-        fmt.Println("[negroniJWT] Loading keys")
-        once.Do(loadKeys)
-    }
+	if os.IsNotExist(privKeyError) || os.IsNotExist(pubKeyError) {
+		fmt.Println("[negroniJWT] No Keys found, generating RS256 private and public keys")
+		once.Do(generateKeys)
+	} else {
+		fmt.Println("[negroniJWT] Loading keys")
+		once.Do(loadKeys)
+	}
 }
 
 func writePEMToFile(filename string, b *pem.Block) {
-    f, err := os.OpenFile(filename, os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0777)
-    if err != nil {
-        panic(err)
-    }
-    err = pem.Encode(f, b)
-    if err != nil {
-        panic(err)
-    }
+	f, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0777)
+	if err != nil {
+		panic(err)
+	}
+	err = pem.Encode(f, b)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func loadKeys() {
-    privBytes, err := ioutil.ReadFile(privateKeyPath)
-    if err != nil {
-        panic(err)
-    }
+	privBytes, err := ioutil.ReadFile(privateKeyPath)
+	if err != nil {
+		panic(err)
+	}
 
-    pubBytes, err := ioutil.ReadFile(publicKeyPath)
-    if err != nil {
-        panic(err)
-    }
+	pubBytes, err := ioutil.ReadFile(publicKeyPath)
+	if err != nil {
+		panic(err)
+	}
 
-    privKeyPEMEncodedBytes, _ := pem.Decode(privBytes)
-    privKeyPEMEncoded = pem.EncodeToMemory(privKeyPEMEncodedBytes)
-    pubKeyPEMEncodedBytes, _ := pem.Decode(pubBytes)
-    pubKeyPEMEncoded = pem.EncodeToMemory(pubKeyPEMEncodedBytes)
+	privKeyPEMEncodedBytes, _ := pem.Decode(privBytes)
+	privKeyPEMEncoded = pem.EncodeToMemory(privKeyPEMEncodedBytes)
+	pubKeyPEMEncodedBytes, _ := pem.Decode(pubBytes)
+	pubKeyPEMEncoded = pem.EncodeToMemory(pubKeyPEMEncodedBytes)
 }
 
 func generateKeys() {
@@ -85,21 +86,21 @@ func generateKeys() {
 	if err != nil {
 		panic(err)
 	}
-    privateKeyPEMBlock := &pem.Block{
+	privateKeyPEMBlock := &pem.Block{
 		Type:  "PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(privKey),
 	}
-    writePEMToFile(privateKeyPath, privateKeyPEMBlock)
+	writePEMToFile(privateKeyPath, privateKeyPEMBlock)
 	privKeyPEMEncoded = pem.EncodeToMemory(privateKeyPEMBlock)
 	pubANS1, err := x509.MarshalPKIXPublicKey(&privKey.PublicKey)
 	if err != nil {
 		panic(err)
 	}
-    publicKeyPEMBlock := &pem.Block{
+	publicKeyPEMBlock := &pem.Block{
 		Type:  "PUBLIC KEY",
 		Bytes: pubANS1,
 	}
-    writePEMToFile(publicKeyPath, publicKeyPEMBlock)
+	writePEMToFile(publicKeyPath, publicKeyPEMBlock)
 	pubKeyPEMEncoded = pem.EncodeToMemory(publicKeyPEMBlock)
 	libTrustPubKey, err := libtrust.UnmarshalPublicKeyPEM(pubKeyPEMEncoded)
 	if err != nil {
@@ -152,13 +153,14 @@ func getClaims(token string) (claims map[string]interface{}, err error) {
 // n := negroni.Classic()
 // n.Use(negroni.HandlerFunc(negroniJWT.Middleware))
 func Middleware(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	var authToken string = strings.Replace(r.Header.Get("Authorization"), "Bearer ", "", 1)
-	claims, err := getClaims(authToken)
+
+	ctx, err := newContextWithClaims(r)
 	if err == nil || failRequest == false {
 		if err == nil {
-			context.Set(r, context_key, claims)
+			next(rw, r.WithContext(ctx))
+		} else {
+			next(rw, r)
 		}
-		next(rw, r)
 	} else {
 		rw.WriteHeader(401)
 	}
@@ -181,10 +183,20 @@ func GenerateToken(claims map[string]interface{}, expiration time.Time) (s strin
 
 // Get attempts to retrieve the claims map for request. If there was an error decoding the JSON Web Token.
 func Get(r *http.Request) (claims map[string]interface{}, ok bool) {
-	c, ok := context.GetOk(r, context_key)
-	if !ok {
-		return claims, ok
-	}
-	claims, castOk := c.(map[string]interface{})
+	claims, castOk := r.Context().Value(context_key).(map[string]interface{})
 	return claims, castOk
+}
+
+func newContextWithClaims(r *http.Request) (context.Context, error) {
+	ctx := r.Context()
+
+	var authToken string = strings.Replace(r.Header.Get("Authorization"), "Bearer ", "", 1)
+	if authToken == "" {
+		authToken = r.FormValue("auth_code")
+	}
+	claims, err := getClaims(authToken)
+	if err != nil {
+		return ctx, err
+	}
+	return context.WithValue(ctx, context_key, claims), err
 }
